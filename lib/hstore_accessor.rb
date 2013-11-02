@@ -1,6 +1,7 @@
 require "hstore_accessor/version"
 require "active_support"
 require "active_record"
+require "default_value"
 
 module HstoreAccessor
   extend ActiveSupport::Concern
@@ -51,10 +52,12 @@ module HstoreAccessor
 
         data_type = type
         store_key = key
+        default_value = DefaultValue.new
         if type.is_a?(Hash)
           type = type.with_indifferent_access
           data_type = type[:data_type]
           store_key = type[:store_key]
+          default_value = DefaultValue.new(type[:default])
         end
 
         data_type = data_type.to_sym
@@ -70,6 +73,12 @@ module HstoreAccessor
           value = send(hstore_attribute) && send(hstore_attribute).with_indifferent_access[store_key.to_s]
           deserialize(data_type, value)
         end
+
+        send(:after_initialize, proc do
+          if default_value.has_value? && send("#{key}") == nil
+            send("#{key}=", default_value.value)
+          end
+        end)
 
         if type == :boolean
           define_method("#{key}?") do

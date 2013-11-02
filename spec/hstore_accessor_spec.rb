@@ -2,7 +2,7 @@ require "spec_helper"
 require "active_support/all"
 
 FIELDS = {
-  color: :string,
+  color: { data_type: :string, default: "green" },
   price: :integer,
   weight: { data_type: :float, store_key: "w" },
   popular: :boolean,
@@ -91,6 +91,16 @@ describe HstoreAccessor do
       product.save
       product.reload
       expect(product.popular?).to be_false
+    end
+
+  end
+
+  describe "default values" do
+
+    let(:product) { Product.new }
+
+    it "sets the default value for a field when initializing an object" do
+      expect(product.color).to eq "green"
     end
 
   end
