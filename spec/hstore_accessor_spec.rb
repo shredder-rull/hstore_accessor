@@ -498,4 +498,26 @@ describe HstoreAccessor do
 
   end
 
+  describe "json" do
+    before do
+      @params = {
+        color: 'red',
+        price: 10000,
+        weight: 90.0,
+        popular: true,
+        tags: ['1','2','3'],
+        reviews: {'one' => 1, 'two' => 2},
+        miles: nil
+      }.stringify_keys!
+    end
+
+    it "should added hstore fields to json" do
+      product = Product.new(@params)
+      json = product.as_json; json.delete('id')
+      json.each do |k,v|
+        expect(v).to eq(@params[k])
+      end
+    end
+  end
+
 end

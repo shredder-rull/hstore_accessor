@@ -16,6 +16,17 @@ module HstoreAccessor
     base.class_attribute :hstore_attributes
   end
 
+  def as_json(*attrs)
+    json = super(*attrs)
+    hstore_attributes.each do |hstore_key, hstore_field|
+      json.delete(hstore_key.to_s)
+      hstore_field.keys.each do |key|
+        json[key.to_s] = self.send(key)
+      end
+    end if hstore_attributes.present?
+    json
+  end
+
 end
 
 ActiveSupport.on_load(:active_record) do
