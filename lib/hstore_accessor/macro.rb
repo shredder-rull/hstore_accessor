@@ -1,10 +1,5 @@
 module HstoreAccessor
   module Macro
-    extend ActiveSupport::Concern
-
-    included do
-      class_attribute :hstore_attributes
-    end
 
     module ClassMethods
 

@@ -11,6 +11,11 @@ module HstoreAccessor
   extend ActiveSupport::Concern
   include Serialization
   include Macro
+
+  def self.included(base)
+    base.class_attribute :hstore_attributes
+  end
+
 end
 
 ActiveSupport.on_load(:active_record) do
