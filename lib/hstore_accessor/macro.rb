@@ -1,11 +1,20 @@
 module HstoreAccessor
   module Macro
+    extend ActiveSupport::Concern
+
+    included do
+      class_attribute :hstore_attributes
+    end
 
     module ClassMethods
 
       def hstore_accessor(hstore_attribute, fields)
+        self.hstore_attributes = self.hstore_attributes || {}
+        self.hstore_attributes[hstore_attribute] ||= {}
+        self.hstore_attributes[hstore_attribute].merge!(fields)
+
         define_method("hstore_metadata_for_#{hstore_attribute}") do
-          fields
+          self.hstore_attributes[hstore_attribute]
         end
 
         field_methods = Module.new

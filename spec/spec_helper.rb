@@ -19,7 +19,9 @@ def create_database
   ActiveRecord::Base.establish_connection(
     adapter: "postgresql",
     database: "hstore_accessor",
-    username: "postgres"
+    username: "ivan",
+    password: "123456",
+    host: "localhost"
   )
 
   ActiveRecord::Base.connection.execute("CREATE EXTENSION hstore;") rescue ActiveRecord::StatementInvalid
