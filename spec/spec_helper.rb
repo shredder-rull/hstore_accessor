@@ -1,10 +1,12 @@
 require "hstore_accessor"
 require "database_cleaner"
+require "shoulda-matchers"
 
 DatabaseCleaner.strategy = :truncation
 
 RSpec.configure do |config|
   config.mock_with :rspec
+  config.order = :random
 
   config.before :suite do
     create_database
@@ -29,5 +31,17 @@ def create_database
 
   ActiveRecord::Base.connection.create_table(:products) do |t|
     t.hstore :options
+    t.hstore :data
+
+    t.string :string_type
+    t.integer :integer_type
+    t.boolean :boolean_type
+    t.float :float_type
+    t.time :time_type
+    t.string :array_type, array: true
+    t.date :date_type
+    t.datetime :datetime_type
+    t.decimal :decimal_type
+    t.hstore :hash_type
   end
 end

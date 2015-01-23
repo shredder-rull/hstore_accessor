@@ -17,3 +17,4 @@ test/version_tmp
 .idea
 tmp
 logfile
+gemfiles/*.gemfile.lock

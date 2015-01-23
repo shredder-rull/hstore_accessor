@@ -1,22 +1,56 @@
 module HstoreAccessor
   module Macro
-
     module ClassMethods
-
       def hstore_accessor(hstore_attribute, fields)
+
         self.hstore_attributes = self.hstore_attributes || {}
         self.hstore_attributes[hstore_attribute] ||= {}
         self.hstore_attributes[hstore_attribute].merge!(fields)
 
-        define_method("hstore_metadata_for_#{hstore_attribute}") do
-          self.hstore_attributes[hstore_attribute]
+        @hstore_keys_and_types ||= {}
+
+        "hstore_metadata_for_#{hstore_attribute}".tap do |method_name|
+          singleton_class.send(:define_method, method_name) do
+            self.hstore_attributes[hstore_attribute]
+          end
+          delegate method_name, to: :class
         end
 
         field_methods = Module.new
-        fields.each do |key, type|
 
+        if ActiveRecord::VERSION::STRING.to_f >= 4.2
+          singleton_class.send(:define_method, :type_for_attribute) do |attribute|
+            data_type = @hstore_keys_and_types[attribute]
+            if data_type
+              TypeHelpers.types[data_type].new || ActiveRecord::Type::Value.new
+            else
+              super(attribute)
+            end
+          end
+
+          singleton_class.send(:define_method, :column_for_attribute) do |attribute|
+            data_type = @hstore_keys_and_types[attribute.to_s]
+            if data_type
+              TypeHelpers.column_type_for(attribute.to_s, data_type)
+            else
+              super(attribute)
+            end
+          end
+        else
+          field_methods.send(:define_method, :column_for_attribute) do |attribute|
+            data_type = self.class.instance_eval { @hstore_keys_and_types }[attribute.to_s]
+            if data_type
+              TypeHelpers.column_type_for(attribute.to_s, data_type)
+            else
+              super(attribute)
+            end
+          end
+        end
+
+        fields.each do |key, type|
           data_type = type
           store_key = key
+
           if type.is_a?(Hash)
             type = type.with_indifferent_access
             data_type = type[:data_type]
@@ -27,68 +61,108 @@ module HstoreAccessor
 
           raise Serialization::InvalidDataTypeError unless Serialization::VALID_TYPES.include?(data_type)
 
-          field_methods.send(:define_method, "#{key}=") do |value|
-            serialized_value = serialize(data_type, TypeHelpers.cast(type, value))
-            send(:attribute_will_change!, key)
-            send("#{hstore_attribute}_will_change!")
-            send("#{hstore_attribute}=", (send(hstore_attribute) || {}).merge(store_key.to_s => serialized_value))
-          end
+          @hstore_keys_and_types[key.to_s] = data_type
 
-          field_methods.send(:define_method, key) do
-            value = send(hstore_attribute) && send(hstore_attribute).with_indifferent_access[store_key.to_s]
-            deserialize(data_type, value)
-          end
+          field_methods.instance_eval do
+            define_method("#{key}=") do |value|
+              casted_value = TypeHelpers.cast(data_type, value)
+              serialized_value = Serialization.serialize(data_type, casted_value)
 
-          field_methods.send(:define_method, "#{key}?") do
-            send("#{key}").present?
-          end
+              unless send(key) == casted_value
+                send("#{hstore_attribute}_will_change!")
+              end
 
-          field_methods.send(:define_method, "#{key}_changed?") do
-            send(:attribute_changed?, key)
-          end
+              send("#{hstore_attribute}=", (send(hstore_attribute) || {}).merge(store_key.to_s => serialized_value))
+            end
 
-          field_methods.send(:define_method, "#{key}_was") do
-            send(:attribute_was, key)
-          end
+            define_method(key) do
+              value = send(hstore_attribute) && send(hstore_attribute).with_indifferent_access[store_key.to_s]
+              Serialization.deserialize(data_type, value)
+            end
 
-          field_methods.send(:define_method, "#{key}_change") do
-            send(:attribute_change, key)
+            define_method("#{key}?") do
+              send("#{key}").present?
+            end
+
+            define_method("#{key}_changed?") do
+              send("#{key}_change").present?
+            end
+
+            define_method("#{key}_was") do
+              (send(:attribute_was, hstore_attribute.to_s) || {})[key.to_s]
+            end
+
+            define_method("#{key}_change") do
+              hstore_changes = send("#{hstore_attribute}_change")
+              return if hstore_changes.nil?
+              attribute_changes = hstore_changes.map { |change| change.try(:[], key.to_s) }
+              attribute_changes.compact.present? ? attribute_changes : nil
+            end
+
+            define_method("restore_#{key}!") do
+              old_hstore = send("#{hstore_attribute}_change").try(:first) || {}
+              send("#{key}=", old_hstore[key.to_s])
+            end
+
+            define_method("reset_#{key}!") do
+              if ActiveRecord::VERSION::STRING.to_f >= 4.2
+                ActiveSupport::Deprecation.warn(<<-MSG.squish)
+                  `#reset_#{key}!` is deprecated and will be removed on Rails 5.
+                  Please use `#restore_#{key}!` instead.
+                MSG
+              end
+              send("restore_#{key}!")
+            end
+
+            define_method("#{key}_will_change!") do
+              send("#{hstore_attribute}_will_change!")
+            end
           end
 
           query_field = "#{hstore_attribute} -> '#{store_key}'"
+          eq_query_field = "#{hstore_attribute} @> hstore('#{store_key}', ?)"
 
           case data_type
           when :string
-            send(:scope, "with_#{key}", -> value { where("#{query_field} = ?", value.to_s) })
-          when :integer, :float, :decimal
-            send(:scope, "#{key}_lt",  -> value { where("(#{query_field})::#{data_type} < ?", value.to_s) })
+            send(:scope, "with_#{key}", -> value { where(eq_query_field, value.to_s) })
+          when :integer
+            send(:scope, "#{key}_lt", -> value { where("(#{query_field})::#{data_type} < ?", value.to_s) })
             send(:scope, "#{key}_lte", -> value { where("(#{query_field})::#{data_type} <= ?", value.to_s) })
-            send(:scope, "#{key}_eq",  -> value { where("(#{query_field})::#{data_type} = ?", value.to_s) })
+            send(:scope, "#{key}_eq", -> value { where(eq_query_field, value.to_s) })
             send(:scope, "#{key}_gte", -> value { where("(#{query_field})::#{data_type} >= ?", value.to_s) })
-            send(:scope, "#{key}_gt",  -> value { where("(#{query_field})::#{data_type} > ?", value.to_s) })
-          when :time
+            send(:scope, "#{key}_gt", -> value { where("(#{query_field})::#{data_type} > ?", value.to_s) })
+            send(:scope, "#{key}_in", -> value { where("(#{query_field}) IN (?)", value.map(&:to_s)) })
+            send(:scope, "#{key}_between", -> (v1, v2) do
+              where("(#{query_field})::#{data_type} BETWEEN ?::#{data_type} and ?::#{data_type}", v1, v2)
+            end)
+          when :float, :decimal
+            send(:scope, "#{key}_lt", -> value { where("(#{query_field})::#{data_type} < ?", value.to_s) })
+            send(:scope, "#{key}_lte", -> value { where("(#{query_field})::#{data_type} <= ?", value.to_s) })
+            send(:scope, "#{key}_eq", -> value { where("(#{query_field})::#{data_type} = ?", value.to_s) })
+            send(:scope, "#{key}_gte", -> value { where("(#{query_field})::#{data_type} >= ?", value.to_s) })
+            send(:scope, "#{key}_gt", -> value { where("(#{query_field})::#{data_type} > ?", value.to_s) })
+            send(:scope, "#{key}_in", -> value { where("(#{query_field}) IN (?)", value.map(&:to_s)) })
+            send(:scope, "#{key}_between", -> (v1, v2) do
+              where("(#{query_field})::#{data_type} BETWEEN ?::#{data_type} and ?::#{data_type}", v1, v2)
+            end)
+          when :datetime
             send(:scope, "#{key}_before", -> value { where("(#{query_field})::integer < ?", value.to_i) })
-            send(:scope, "#{key}_eq",     -> value { where("(#{query_field})::integer = ?", value.to_i) })
-            send(:scope, "#{key}_after",  -> value { where("(#{query_field})::integer > ?", value.to_i) })
+            send(:scope, "#{key}_eq", -> value { where(eq_query_field, value.to_i.to_s) })
+            send(:scope, "#{key}_after", -> value { where("(#{query_field})::integer > ?", value.to_i) })
           when :date
             send(:scope, "#{key}_before", -> value { where("#{query_field} < ?", value.to_s) })
-            send(:scope, "#{key}_eq",     -> value { where("#{query_field} = ?", value.to_s) })
-            send(:scope, "#{key}_after",  -> value { where("#{query_field} > ?", value.to_s) })
+            send(:scope, "#{key}_eq", -> value { where(eq_query_field, value.to_s) })
+            send(:scope, "#{key}_after", -> value { where("#{query_field} > ?", value.to_s) })
           when :boolean
-            send(:scope, "is_#{key}", -> { where("#{query_field} = 'true'") })
-            send(:scope, "not_#{key}", -> { where("#{query_field} = 'false'") })
+            send(:scope, "is_#{key}", -> { where(eq_query_field, "true") })
+            send(:scope, "not_#{key}", -> { where(eq_query_field, "false") })
           when :array
-            send(:scope, "#{key}_eq",        -> value { where("#{query_field} = ?", value.join(Serialization::SEPARATOR)) })
-            send(:scope, "#{key}_contains",  -> value do
-              where("string_to_array(#{query_field}, '#{Serialization::SEPARATOR}') @> string_to_array(?, '#{Serialization::SEPARATOR}')", Array[value].flatten)
-            end)
+            send(:scope, "#{key}_eq", -> value { where("#{query_field} = ?", YAML.dump(Array.wrap(value))) })
           end
         end
 
         include field_methods
       end
-
     end
-
   end
 end
