@@ -1,17 +1,80 @@
 module HstoreAccessor
   module Macro
+
+    def [](attr_name)
+      if self.class.is_hstore_attribute?(attr_name)
+        self.send(attr_name)
+      else
+        super
+      end
+    end
+
+    def []=(attr_name, value)
+      if self.class.is_hstore_attribute?(attr_name)
+        self.send("#{attr_name}=", value)
+      else
+        super
+      end
+    end
+
+    def as_json(*attrs)
+      json = super(*attrs)
+      if hstore_attributes.present?
+        hstore_attributes.each do |hstore_key, params|
+          json.delete(params[:attribute].to_s)
+          json[hstore_key.to_s] = send(hstore_key)
+        end
+      end
+      json
+    end
+
     module ClassMethods
+
+      def is_hstore_attribute?(attr)
+        return false unless self.hstore_attributes
+        hstore_attributes[attr.to_sym].present?
+      end
+
+      def hstore_parent_attribute(attr)
+        self.hstore_attributes[attr.to_sym][:attribute]
+      end
+
+      def hstore_attribute_type(attr)
+        self.hstore_attributes[attr.to_sym][:type]
+      end
+
+      def hstore_pg_type(attr)
+        case ( type = hstore_attribute_type(attr) )
+          when :string, :date, :boolean
+            nil
+          when :integer, :float, :decimal
+            type
+          when :datetime
+            :integer
+        end
+      end
+
+      def hstore_pg_field(attr)
+        self.hstore_attributes[attr.to_sym][:store_key]
+      end
+
       def hstore_accessor(hstore_attribute, fields)
 
         self.hstore_attributes = self.hstore_attributes || {}
-        self.hstore_attributes[hstore_attribute] ||= {}
-        self.hstore_attributes[hstore_attribute].merge!(fields)
+
+        fields.each do |k, v|
+          self.hstore_attributes[k.to_sym] ||= {
+            type: v.is_a?(Hash) ? (v[:data_type] || :string) : v.to_sym,
+            attribute: hstore_attribute.to_sym,
+            store_key: v.is_a?(Hash) ? (v[:store_key] || k.to_sym) : k.to_sym
+          }
+        end
 
         @hstore_keys_and_types ||= {}
 
         "hstore_metadata_for_#{hstore_attribute}".tap do |method_name|
           singleton_class.send(:define_method, method_name) do
-            self.hstore_attributes[hstore_attribute]
+            fields
           end
           delegate method_name, to: :class
         end
