@@ -9,7 +9,7 @@ module HstoreAccessor
 
     SERIALIZERS = {
       array: -> value { value && YAML.dump(Array.wrap(value)) },
-      boolean: -> value { (value.to_s == "true").to_s },
+      boolean: -> value { value ? 't' : 'f' },
       date: -> value { value && value.to_s },
       hash: lambda do |value|
         if value
