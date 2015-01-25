@@ -18,8 +18,9 @@ module HstoreAccessor
       if engine and engine.is_hstore_attribute?(o.name)
         hstore_attribute = engine.hstore_parent_attribute(o.name)
         hstore_key = engine.hstore_pg_field(o.name)
+        hstore_type = engine.hstore_pg_type(o.name)
         attribute_sql = "#{quote_table_name join_name}.#{quote_column_name hstore_attribute} -> '#{hstore_key}'"
-        attribute_sql = "(#{attribute_sql})::#{type}" if type = engine.hstore_pg_type(o.name)
+        attribute_sql = "(#{attribute_sql})::#{hstore_type}" if hstore_type
         collector << attribute_sql
       else
         visit_Arel_Attributes_Attribute_without_hstore_support(o, collector)
