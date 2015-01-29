@@ -15,12 +15,18 @@ FIELDS = {
 }
 
 DATA_FIELDS = {
-  color_data: :string
+  color_data: :string,
+  owner_id: :integer
 }
 
 class Product < ActiveRecord::Base
   hstore_accessor :options, FIELDS
   hstore_accessor :data, DATA_FIELDS
+  belongs_to :owner
+end
+
+class Owner < ActiveRecord::Base
+  has_many :products
 end
 
 describe HstoreAccessor do
@@ -775,6 +781,111 @@ describe HstoreAccessor do
           expect(v).to eq(@params[k])
         end
       end
+    end
+
+    describe "belongs_to" do
+      before do
+        @product = Product.create!
+        @owner = Owner.create!
+      end
+
+      context "setter" do
+        it "set owner id to hstore field" do
+          @product.owner = @owner
+          expect(@product.owner).to be(@owner)
+          expect(@product.owner_id).to be(@owner.id)
+          @product.save!
+          @product.reload
+          expect(@product.owner).to eq(@owner)
+          expect(@product.owner_id).to eq(@owner.id)
+        end
+
+        it "set by id should work" do
+          @product.owner_id = @owner.id
+          expect(@product.owner).to eq(@owner)
+          @product.save!
+          @product.reload
+          expect(@product.owner).to eq(@owner)
+        end
+      end
+
+      context "includes" do
+        it "includes should use hstore field" do
+          @product.owner = @owner
+          @product.save!
+
+          @product = Product.includes(:owner).first
+          expect(@product.owner).to eq(@owner)
+
+          @product = Product.includes(:owner).references(:owners).first
+          expect(@product.owner).to eq(@owner)
+        end
+
+        it "joins should use hstore field" do
+          @product.owner = @owner
+          @product.save!
+
+          @product = Product.joins(:owner).first
+          expect(@product.owner).to eq(@owner)
+        end
+        #TODO: add queries count test
+      end
+
+    end
+
+    describe "has_many" do
+      before do
+        @owner = Owner.create!
+        @product1 = Product.create!
+        @product2 = Product.create!
+        @product3 = Product.create!
+        @products = [@product1, @product2, @product3]
+      end
+
+      context "setting" do
+
+        it 'should set owner id to each product' do
+          @owner.products = @products
+          expect(@owner.products.size).to eq(3)
+          expect(@owner.products).to eq(@products)
+
+          @products.each do |p|
+            expect(p.owner_id).to eq(@owner.id)
+            expect(p.owner).to eq(@owner)
+          end
+
+          @owner = @owner.reload
+          expect(@owner.products.size).to eq(3)
+          expect(@owner.products).to eq(@products)
+        end
+
+      end
+
+      context "includes" do
+
+        it 'should load by hstore field' do
+          @owner.products = @products
+
+          @owner = Owner.includes(:products).first
+          expect(@owner.products.size).to eq(3)
+          expect(@owner.products).to eq(@products)
+
+          @owner = Owner.includes(:products).references(:products).first
+          expect(@owner.products.size).to eq(3)
+          expect(@owner.products).to eq(@products)
+        end
+
+        it "joins should use hstore field" do
+          @owner.products = @products
+
+          @owner = Owner.joins(:products).first
+          expect(@owner.products.size).to eq(3)
+          expect(@owner.products).to eq(@products)
+        end
+
+        #TODO: add queries count test
+      end
+
     end
 
   end

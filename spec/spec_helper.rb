@@ -28,6 +28,7 @@ def create_database
 
   ActiveRecord::Base.connection.execute("CREATE EXTENSION hstore;") rescue ActiveRecord::StatementInvalid
   ActiveRecord::Base.connection.execute("DROP TABLE IF EXISTS products;")
+  ActiveRecord::Base.connection.execute("DROP TABLE IF EXISTS owners;")
 
   ActiveRecord::Base.connection.create_table(:products) do |t|
     t.hstore :options
@@ -44,4 +45,11 @@ def create_database
     t.decimal :decimal_type
     t.hstore :hash_type
   end
+
+  ActiveRecord::Base.connection.create_table(:owners) do |t|
+    t.string :string_type
+    t.integer :integer_type
+    t.boolean :boolean_type
+  end
+
 end
