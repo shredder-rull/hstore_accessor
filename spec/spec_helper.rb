@@ -44,6 +44,7 @@ def create_database
     t.datetime :datetime_type
     t.decimal :decimal_type
     t.hstore :hash_type
+    t.string :type
   end
 
   ActiveRecord::Base.connection.create_table(:owners) do |t|

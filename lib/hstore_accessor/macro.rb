@@ -40,6 +40,7 @@ module HstoreAccessor
       end
 
       def hstore_attribute_type(attr)
+        return unless self.hstore_attributes[attr.to_sym]
         self.hstore_attributes[attr.to_sym][:type]
       end
 
@@ -70,8 +71,6 @@ module HstoreAccessor
           }
         end
 
-        @hstore_keys_and_types ||= {}
-
         "hstore_metadata_for_#{hstore_attribute}".tap do |method_name|
           singleton_class.send(:define_method, method_name) do
             fields
@@ -83,7 +82,7 @@ module HstoreAccessor
 
         if ActiveRecord::VERSION::STRING.to_f >= 4.2
           singleton_class.send(:define_method, :type_for_attribute) do |attribute|
-            data_type = @hstore_keys_and_types[attribute]
+            data_type = self.hstore_attribute_type(attribute)
             if data_type
               TypeHelpers.types[data_type].new || ActiveRecord::Type::Value.new
             else
@@ -92,7 +91,7 @@ module HstoreAccessor
           end
 
           singleton_class.send(:define_method, :column_for_attribute) do |attribute|
-            data_type = @hstore_keys_and_types[attribute.to_s]
+            data_type = self.hstore_attribute_type(attribute)
             if data_type
               TypeHelpers.column_type_for(attribute.to_s, data_type)
             else
@@ -101,7 +100,7 @@ module HstoreAccessor
           end
         else
           field_methods.send(:define_method, :column_for_attribute) do |attribute|
-            data_type = self.class.instance_eval { @hstore_keys_and_types }[attribute.to_s]
+            data_type = self.hstore_attribute_type(attribute)
             if data_type
               TypeHelpers.column_type_for(attribute.to_s, data_type)
             else
@@ -123,8 +122,6 @@ module HstoreAccessor
           data_type = data_type.to_sym
 
           raise Serialization::InvalidDataTypeError unless Serialization::VALID_TYPES.include?(data_type)
-
-          @hstore_keys_and_types[key.to_s] = data_type
 
           field_methods.instance_eval do
             define_method("#{key}=") do |value|
