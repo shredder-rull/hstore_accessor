@@ -136,7 +136,7 @@ module HstoreAccessor
             end
 
             define_method(key) do
-              value = send(hstore_attribute) && send(hstore_attribute).with_indifferent_access[store_key.to_s]
+              value = send(hstore_attribute) && send(hstore_attribute)[store_key.to_s]
               Serialization.deserialize(data_type, value)
             end
 
